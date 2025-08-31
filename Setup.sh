@@ -2,6 +2,7 @@
 # <UDF name="tailscale_authkey" label="Tailscale Auth Key" example="tskey-auth-xxxx" />
 # <UDF name="hostname" label="Hostname for Exit Node" default="Tailscale-Gateway" />
 # <UDF name="enable_ssh" label="Enable SSH access via Tailscale" oneOf="yes,no" default="yes" />
+# <UDF name="enable_auto_update" label="Enable Tailscale auto-updates" oneOf="yes,no" default="yes" />
 
 # Tailscale Exit Node StackScript for Linode
 # This script automatically configures a Linode instance as a Tailscale Exit Node
@@ -55,20 +56,20 @@ if [ -z "$TAILSCALE_AUTHKEY" ]; then
 fi
 
 # 1. Update system
-print_step "1/8" "Updating system packages"
+print_step "1/9" "Updating system packages"
 apt-get update
 apt-get upgrade -y
 print_success "System updated"
 
 # 2. Set hostname
-print_step "2/8" "Setting hostname"
+print_step "2/9" "Setting hostname"
 echo "Setting hostname to '$HOSTNAME'..."
 hostnamectl set-hostname "$HOSTNAME"
 echo "$HOSTNAME" > /etc/hostname
 print_success "Hostname set to: $(hostname)"
 
 # 3. Install Tailscale
-print_step "3/8" "Installing Tailscale"
+print_step "3/9" "Installing Tailscale"
 echo "Downloading and executing official Tailscale installation script..."
 curl -fsSL https://tailscale.com/install.sh | sh
 if [ $? -eq 0 ]; then
@@ -78,8 +79,89 @@ else
     exit 1
 fi
 
-# 4. Enable IP forwarding
-print_step "4/8" "Enabling IP forwarding"
+# 4. Configure Tailscale auto-updates
+print_step "4/9" "Configuring Tailscale auto-updates"
+if [ "$ENABLE_AUTO_UPDATE" = "yes" ]; then
+    echo "Enabling Tailscale auto-updates..."
+    
+    # Enable automatic updates
+    tailscale set --auto-update
+    
+    # Create systemd timer for regular update checks
+    cat > /etc/systemd/system/tailscale-update.service << EOF
+[Unit]
+Description=Tailscale Update Check
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/tailscale update --yes
+User=root
+EOF
+
+    cat > /etc/systemd/system/tailscale-update.timer << EOF
+[Unit]
+Description=Check for Tailscale updates daily
+Requires=tailscale-update.service
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    # Enable and start the timer
+    systemctl daemon-reload
+    systemctl enable tailscale-update.timer
+    systemctl start tailscale-update.timer
+    
+    print_success "Tailscale auto-updates enabled (daily check)"
+    
+    # Also set up unattended-upgrades for system security updates
+    echo "Installing unattended-upgrades for system security updates..."
+    apt-get install -y unattended-upgrades apt-listchanges
+    
+    # Configure unattended-upgrades
+    cat > /etc/apt/apt.conf.d/50unattended-upgrades << EOF
+Unattended-Upgrade::Allowed-Origins {
+    "\${distro_id}:\${distro_codename}";
+    "\${distro_id}:\${distro_codename}-security";
+    "\${distro_id}ESMApps:\${distro_codename}-apps-security";
+    "\${distro_id}ESM:\${distro_codename}-infra-security";
+    "Tailscale Inc.:stable";
+};
+
+Unattended-Upgrade::Package-Blacklist {
+};
+
+Unattended-Upgrade::DevRelease "auto";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+Unattended-Upgrade::Automatic-Reboot-Time "02:00";
+EOF
+
+    # Enable automatic updates
+    echo 'APT::Periodic::Update-Package-Lists "1";' > /etc/apt/apt.conf.d/20auto-upgrades
+    echo 'APT::Periodic::Unattended-Upgrade "1";' >> /etc/apt/apt.conf.d/20auto-upgrades
+    echo 'APT::Periodic::Download-Upgradeable-Packages "1";' >> /etc/apt/apt.conf.d/20auto-upgrades
+    echo 'APT::Periodic::AutocleanInterval "7";' >> /etc/apt/apt.conf.d/20auto-upgrades
+    
+    systemctl enable unattended-upgrades
+    systemctl start unattended-upgrades
+    
+    print_success "System auto-updates also configured"
+else
+    print_warning "Tailscale auto-updates disabled"
+fi
+
+# 5. Enable IP forwarding
+print_step "5/9" "Enabling IP forwarding"
 echo "Enabling IPv4 and IPv6 packet forwarding..."
 
 # Enable IPv4 forwarding
@@ -88,8 +170,8 @@ echo 'net.ipv6.conf.all.forwarding = 1' >> /etc/sysctl.d/99-tailscale.conf
 sysctl -p /etc/sysctl.d/99-tailscale.conf
 print_success "IP forwarding enabled"
 
-# 5. Install and configure firewalld
-print_step "5/8" "Installing and configuring firewalld"
+# 6. Install and configure firewalld
+print_step "6/9" "Installing and configuring firewalld"
 
 # Install firewalld
 apt-get install -y firewalld
@@ -97,8 +179,8 @@ systemctl start firewalld
 systemctl enable firewalld
 print_success "firewalld installed and started"
 
-# 6. Configure firewalld
-print_step "6/8" "Configuring firewall rules"
+# 7. Configure firewalld
+print_step "7/9" "Configuring firewall rules"
 
 # Get default internet connection interface
 DEFAULT_IF=$(ip route | grep default | awk '{print $5}' | head -n1)
@@ -112,12 +194,12 @@ firewall-cmd --zone=public --add-forward --permanent
 firewall-cmd --reload
 print_success "Firewall rules configured"
 
-# 7. Configure Tailscale with auth key
-print_step "7/8" "Configuring Tailscale as Exit Node"
+# 8. Configure Tailscale with auth key
+print_step "8/9" "Configuring Tailscale as Exit Node"
 echo "Starting Tailscale with provided auth key..."
 
 # Start Tailscale with auth key and exit node advertisement
-tailscale up --authkey="$TAILSCALE_AUTHKEY" --advertise-exit-node --accept-routes --hostname="$HOSTNAME" --auto-update
+tailscale up --authkey="$TAILSCALE_AUTHKEY" --advertise-exit-node --accept-routes --hostname="$HOSTNAME"
 
 if [ $? -eq 0 ]; then
     print_success "Tailscale started successfully as Exit Node"
@@ -126,8 +208,8 @@ else
     exit 1
 fi
 
-# 8. Optional: Configure SSH access
-print_step "8/8" "Configuring SSH access"
+# 9. Optional: Configure SSH access
+print_step "9/9" "Configuring SSH access"
 if [ "$ENABLE_SSH" = "yes" ]; then
     echo "Configuring SSH to accept connections from Tailscale..."
     
@@ -148,9 +230,19 @@ fi
 
 # Final status check
 echo ""
-print_step "Final" "Checking Tailscale status"
+print_step "Final" "Checking Tailscale status and update configuration"
 sleep 5
 tailscale status
+
+# Check auto-update status
+if [ "$ENABLE_AUTO_UPDATE" = "yes" ]; then
+    echo ""
+    echo "Auto-update timer status:"
+    systemctl status tailscale-update.timer --no-pager
+    echo ""
+    echo "Next scheduled update check:"
+    systemctl list-timers tailscale-update.timer --no-pager
+fi
 
 # Completion message
 echo ""
@@ -159,6 +251,14 @@ echo -e "${GREEN}Setup completed successfully!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 print_success "This Linode instance is now configured as a Tailscale Exit Node"
+
+if [ "$ENABLE_AUTO_UPDATE" = "yes" ]; then
+    echo ""
+    print_success "Tailscale auto-updates are enabled and will check daily"
+    echo "Manual update command: tailscale update"
+    echo "Check update status: systemctl status tailscale-update.timer"
+fi
+
 echo ""
 echo "Important next steps:"
 echo "1. Approve this Exit Node in the Tailscale admin console:"
@@ -172,6 +272,11 @@ echo ""
 echo "3. To check Exit Node status:"
 echo "   tailscale status"
 echo "   tailscale exit-node list"
+echo ""
+echo "4. Update management:"
+echo "   - Manual update: tailscale update"
+echo "   - Check for updates: tailscale update --check"
+echo "   - View update logs: journalctl -u tailscale-update.service"
 echo ""
 echo "Log file: /var/log/stackscript.log"
 echo "Completed at: $(date)"
