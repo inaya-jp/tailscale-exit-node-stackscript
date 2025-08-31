@@ -55,20 +55,20 @@ if [ -z "$TAILSCALE_AUTHKEY" ]; then
 fi
 
 # 1. Update system
-print_step "1/9" "Updating system packages"
+print_step "1/8" "Updating system packages"
 apt-get update
 apt-get upgrade -y
 print_success "System updated"
 
 # 2. Set hostname
-print_step "2/9" "Setting hostname"
+print_step "2/8" "Setting hostname"
 echo "Setting hostname to '$HOSTNAME'..."
 hostnamectl set-hostname "$HOSTNAME"
 echo "$HOSTNAME" > /etc/hostname
 print_success "Hostname set to: $(hostname)"
 
 # 3. Install Tailscale
-print_step "3/9" "Installing Tailscale"
+print_step "3/8" "Installing Tailscale"
 echo "Downloading and executing official Tailscale installation script..."
 curl -fsSL https://tailscale.com/install.sh | sh
 if [ $? -eq 0 ]; then
@@ -78,18 +78,8 @@ else
     exit 1
 fi
 
-# 4. Enable Tailscale auto update
-print_step "4/9" "Enabling Tailscale auto update"
-echo "Configuring Tailscale to automatically update..."
-tailscale set --auto-update
-if [ $? -eq 0 ]; then
-    print_success "Tailscale auto update enabled"
-else
-    print_warning "Failed to enable auto update, continuing with setup..."
-fi
-
-# 5. Enable IP forwarding
-print_step "5/9" "Enabling IP forwarding"
+# 4. Enable IP forwarding
+print_step "4/8" "Enabling IP forwarding"
 echo "Enabling IPv4 and IPv6 packet forwarding..."
 
 # Enable IPv4 forwarding
@@ -98,8 +88,8 @@ echo 'net.ipv6.conf.all.forwarding = 1' >> /etc/sysctl.d/99-tailscale.conf
 sysctl -p /etc/sysctl.d/99-tailscale.conf
 print_success "IP forwarding enabled"
 
-# 6. Install and configure firewalld
-print_step "6/9" "Installing and configuring firewalld"
+# 5. Install and configure firewalld
+print_step "5/8" "Installing and configuring firewalld"
 
 # Install firewalld
 apt-get install -y firewalld
@@ -107,8 +97,8 @@ systemctl start firewalld
 systemctl enable firewalld
 print_success "firewalld installed and started"
 
-# 7. Configure firewalld
-print_step "7/9" "Configuring firewall rules"
+# 6. Configure firewalld
+print_step "6/8" "Configuring firewall rules"
 
 # Get default internet connection interface
 DEFAULT_IF=$(ip route | grep default | awk '{print $5}' | head -n1)
@@ -122,12 +112,12 @@ firewall-cmd --zone=public --add-forward --permanent
 firewall-cmd --reload
 print_success "Firewall rules configured"
 
-# 8. Configure Tailscale with auth key
-print_step "8/9" "Configuring Tailscale as Exit Node"
+# 7. Configure Tailscale with auth key
+print_step "7/8" "Configuring Tailscale as Exit Node"
 echo "Starting Tailscale with provided auth key..."
 
 # Start Tailscale with auth key and exit node advertisement
-tailscale up --authkey="$TAILSCALE_AUTHKEY" --advertise-exit-node --accept-routes --hostname="$HOSTNAME"
+tailscale up --authkey="$TAILSCALE_AUTHKEY" --advertise-exit-node --accept-routes --hostname="$HOSTNAME" --auto-update
 
 if [ $? -eq 0 ]; then
     print_success "Tailscale started successfully as Exit Node"
@@ -136,8 +126,8 @@ else
     exit 1
 fi
 
-# 9. Optional: Configure SSH access
-print_step "9/9" "Configuring SSH access"
+# 8. Optional: Configure SSH access
+print_step "8/8" "Configuring SSH access"
 if [ "$ENABLE_SSH" = "yes" ]; then
     echo "Configuring SSH to accept connections from Tailscale..."
     
@@ -168,7 +158,7 @@ echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Setup completed successfully!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
-print_success "This Linode instance is now configured as a Tailscale Exit Node with auto update enabled"
+print_success "This Linode instance is now configured as a Tailscale Exit Node"
 echo ""
 echo "Important next steps:"
 echo "1. Approve this Exit Node in the Tailscale admin console:"
@@ -182,10 +172,6 @@ echo ""
 echo "3. To check Exit Node status:"
 echo "   tailscale status"
 echo "   tailscale exit-node list"
-echo ""
-echo "4. To verify auto update status:"
-echo "   tailscale version"
-echo "   tailscale debug prefs"
 echo ""
 echo "Log file: /var/log/stackscript.log"
 echo "Completed at: $(date)"
