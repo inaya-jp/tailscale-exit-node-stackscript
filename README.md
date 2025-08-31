@@ -2,8 +2,11 @@
 
 This StackScript automatically configures a Linode instance as a Tailscale Exit Node, allowing you to route your internet traffic through your Linode server when connected to Tailscale.
 
-![Tailscale Logo](https://tailscale.com/files/tailscale-logo-black-text.svg)
-
+[![Tailscale](https://img.shields.io/badge/Tailscale-Compatible-blue)](https://tailscale.com)
+[![Linode](https://img.shields.io/badge/Linode-StackScript-green)](https://www.linode.com/stackscripts/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-20.04%20%7C%2022.04-orange)](https://ubuntu.com/)
+[![Debian](https://img.shields.io/badge/Debian-10%20%7C%2011-red)](https://www.debian.org/)
 ## Features
 
 - 🚀 One-click setup of a Tailscale Exit Node on Linode
